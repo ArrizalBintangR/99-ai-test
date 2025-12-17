@@ -45,7 +45,7 @@ Preferred communication style: Simple, everyday language.
 ## External Dependencies
 
 ### AI Services
-- **OpenAI API**: Used for topic validation and quiz generation (requires `OPENAI_API_KEY` environment variable)
+- **Github Models**: Used for topic validation and quiz generation (requires `GITHUB_TOKEN` environment variable)
 
 ### Database
 - **PostgreSQL**: Drizzle ORM is configured with PostgreSQL dialect (requires `DATABASE_URL` environment variable)

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Header } from "@/components/header";
 import { QuizGeneratorForm } from "@/components/quiz-generator-form";
@@ -8,14 +8,57 @@ import { ExportQuiz } from "@/components/export-quiz";
 import { QuizLoadingState } from "@/components/loading-state";
 import { ErrorState } from "@/components/error-state";
 import { Separator } from "@/components/ui/separator";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { History, Clock, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import type { Quiz, QuizConfig } from "@shared/schema";
+
+const STORAGE_KEY = "quiz-ai-recent-quizzes";
+const MAX_RECENT_QUIZZES = 5;
+
+function getRecentQuizzes(): Quiz[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveQuizToStorage(quiz: Quiz): void {
+  try {
+    const existing = getRecentQuizzes();
+    // Remove duplicate if exists
+    const filtered = existing.filter(q => q.id !== quiz.id);
+    // Add new quiz at the beginning
+    const updated = [quiz, ...filtered].slice(0, MAX_RECENT_QUIZZES);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function clearRecentQuizzes(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 export default function Home() {
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recentQuizzes, setRecentQuizzes] = useState<Quiz[]>([]);
   const formRef = useRef<HTMLDivElement>(null);
   const quizRef = useRef<HTMLDivElement>(null);
+
+  // Load recent quizzes from localStorage on mount
+  useEffect(() => {
+    setRecentQuizzes(getRecentQuizzes());
+  }, []);
 
   const generateQuizMutation = useMutation({
     mutationFn: async (config: QuizConfig) => {
@@ -31,6 +74,9 @@ export default function Home() {
     onSuccess: (data) => {
       setQuiz(data.quiz);
       setError(null);
+      // Save to localStorage
+      saveQuizToStorage(data.quiz);
+      setRecentQuizzes(getRecentQuizzes());
       setTimeout(() => {
         quizRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 100);
@@ -54,6 +100,29 @@ export default function Home() {
 
   const handleRetry = () => {
     setError(null);
+  };
+
+  const handleLoadQuiz = (loadedQuiz: Quiz) => {
+    setQuiz(loadedQuiz);
+    setError(null);
+    setTimeout(() => {
+      quizRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+  };
+
+  const handleClearHistory = () => {
+    clearRecentQuizzes();
+    setRecentQuizzes([]);
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString(undefined, { 
+      month: 'short', 
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   return (
@@ -89,6 +158,54 @@ export default function Home() {
                   onSubmit={handleSubmit}
                   isLoading={generateQuizMutation.isPending}
                 />
+              )}
+
+              {/* Recent Quizzes Section */}
+              {recentQuizzes.length > 0 && (
+                <Card className="w-full max-w-2xl mx-auto">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+                    <CardTitle className="text-lg font-medium flex items-center gap-2">
+                      <History className="h-5 w-5" />
+                      Recent Quizzes
+                    </CardTitle>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={handleClearHistory}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Clear
+                    </Button>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {recentQuizzes.map((recentQuiz) => (
+                      <button
+                        key={recentQuiz.id}
+                        onClick={() => handleLoadQuiz(recentQuiz)}
+                        className="w-full p-3 rounded-md border bg-card hover:bg-accent hover:border-primary transition-colors text-left"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{recentQuiz.topic}</p>
+                            <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
+                              <Clock className="h-3 w-3" />
+                              <span>{formatDate(recentQuiz.createdAt)}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Badge variant="outline" className="text-xs">
+                              {recentQuiz.numberOfQuestions} Q
+                            </Badge>
+                            <Badge variant="secondary" className="text-xs capitalize">
+                              {recentQuiz.difficultyMode}
+                            </Badge>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </CardContent>
+                </Card>
               )}
             </div>
           )}

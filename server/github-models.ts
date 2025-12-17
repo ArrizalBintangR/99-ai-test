@@ -2,8 +2,26 @@ import OpenAI from "openai";
 import { z } from "zod";
 import type { Quiz, QuizQuestion, QuizAnswer, DifficultyMode } from "@shared/schema";
 
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// GitHub Models configuration
+const endpoint = "https://models.github.ai/inference";
+const model = "openai/gpt-5";
+
+// Lazy initialization to ensure env vars are loaded
+let client: OpenAI | null = null;
+
+function getClient(): OpenAI {
+  if (!client) {
+    const token = process.env.GITHUB_TOKEN;
+    if (!token) {
+      throw new Error("GITHUB_TOKEN environment variable is not set");
+    }
+    console.log("[DEBUG] Initializing GitHub Models client");
+    console.log(`[DEBUG] Endpoint: ${endpoint}`);
+    console.log(`[DEBUG] Model: ${model}`);
+    client = new OpenAI({ baseURL: endpoint, apiKey: token });
+  }
+  return client;
+}
 
 interface TopicValidationResult {
   isValid: boolean;
@@ -11,8 +29,14 @@ interface TopicValidationResult {
 }
 
 export async function validatePropertyTopic(topic: string): Promise<TopicValidationResult> {
-  const response = await openai.chat.completions.create({
-    model: "gpt-5",
+  console.log("\n[DEBUG] ========== TOPIC VALIDATION REQUEST ==========");
+  console.log(`[DEBUG] Topic: "${topic}"`);
+  console.log(`[DEBUG] Model: ${model}`);
+  console.log("[DEBUG] Sending request to GitHub Models...");
+  
+  const startTime = Date.now();
+  const response = await getClient().chat.completions.create({
+    model: model,
     messages: [
       {
         role: "system",
@@ -47,22 +71,26 @@ If invalid, explain why briefly in the reason field.`,
         content: `Topic: "${topic}"`,
       },
     ],
-    response_format: { type: "json_object" },
-    max_completion_tokens: 256,
   });
+
+  const duration = Date.now() - startTime;
+  console.log(`[DEBUG] Response received in ${duration}ms`);
+  console.log(`[DEBUG] Raw response: ${response.choices[0].message.content}`);
+  console.log("[DEBUG] ========== END TOPIC VALIDATION ==========\n");
 
   let result: Record<string, unknown>;
   
   try {
     result = JSON.parse(response.choices[0].message.content || "{}");
-  } catch {
-    console.error("Failed to parse topic validation response");
+  } catch (err) {
+    console.error("[DEBUG] Failed to parse topic validation response:", err);
     return {
       isValid: false,
       reason: "Unable to validate topic. Please try again with a clearer property industry topic.",
     };
   }
 
+  console.log(`[DEBUG] Parsed result: isValid=${result.isValid}, reason=${result.reason}`);
   return {
     isValid: result.isValid === true,
     reason: typeof result.reason === "string" ? result.reason : undefined,
@@ -136,28 +164,45 @@ Respond with JSON in this exact format:
   ]
 }`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-5",
-    messages: [
-      {
-        role: "system",
-        content: "You are an expert property industry knowledge quiz generator. You create factual, professional quizzes for corporate learning and assessment. Always respond with valid JSON.",
-      },
-      {
-        role: "user",
-        content: prompt,
-      },
-    ],
-    response_format: { type: "json_object" },
-    max_completion_tokens: 8192,
+  const messages: Array<{ role: "system" | "user"; content: string }> = [
+    {
+      role: "system",
+      content: "You are an expert property industry knowledge quiz generator. You create factual, professional quizzes for corporate learning and assessment. Always respond with valid JSON.",
+    },
+    {
+      role: "user",
+      content: prompt,
+    },
+  ];
+
+  console.log("\n[DEBUG] ========== QUIZ GENERATION REQUEST ==========");
+  console.log(`[DEBUG] Topic: "${topic}"`);
+  console.log(`[DEBUG] Number of questions: ${numberOfQuestions}`);
+  console.log(`[DEBUG] Difficulty mode: ${difficultyMode}`);
+  console.log(`[DEBUG] Model: ${model}`);
+  console.log("[DEBUG] Sending request to GitHub Models...");
+  
+  const startTime = Date.now();
+  const response = await getClient().chat.completions.create({
+    model: model,
+    messages,
   });
+  
+  const duration = Date.now() - startTime;
+  console.log(`[DEBUG] Response received in ${duration}ms`);
+  console.log(`[DEBUG] Response length: ${response.choices[0].message.content?.length || 0} chars`);
 
   const rawContent = response.choices[0].message.content || "{}";
+  console.log("[DEBUG] ========== END QUIZ GENERATION ==========\n");
+  
   let result: Record<string, unknown>;
   
   try {
     result = JSON.parse(rawContent);
-  } catch {
+    console.log(`[DEBUG] Successfully parsed JSON response`);
+  } catch (err) {
+    console.error("[DEBUG] Failed to parse quiz response:", err);
+    console.error("[DEBUG] Raw content:", rawContent);
     throw new Error("Failed to parse quiz response from AI. Please try again.");
   }
 
